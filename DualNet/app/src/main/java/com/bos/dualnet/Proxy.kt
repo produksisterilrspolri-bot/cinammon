@@ -10,11 +10,6 @@ import java.net.Socket
 import java.net.URL
 import kotlin.concurrent.thread
 
-/**
- * Proxy HTTP/HTTPS lokal di 127.0.0.1. WebView diarahkan ke sini;
- * tiap koneksi keluar dipasang ke Network pilihan [route] (LAN atau data).
- * shortcut: koneksi keep-alive HTTP biasa dipakai ulang ke host pertama; HTTPS (CONNECT) tidak terpengaruh.
- */
 class Proxy(private val route: (String) -> Network?) {
 
     fun start(): Int {
@@ -50,7 +45,6 @@ class Proxy(private val route: (String) -> Network?) {
     }
 
     private fun handle(c: Socket) {
-        var up: Socket? = null
         try {
             val cin = c.getInputStream().buffered()
             val cout = c.getOutputStream()
@@ -69,25 +63,24 @@ class Proxy(private val route: (String) -> Network?) {
                 port = if (u.port > 0) u.port else 80
             }
             val net = route(host)
-            up = try {
+            val upSock: Socket = try {
                 if (net != null) net.socketFactory.createSocket(host, port) else Socket(host, port)
             } catch (e: IOException) {
                 cout.write("HTTP/1.1 502 Bad Gateway\r\n\r\n".toByteArray())
                 return
             }
             if (connect) cout.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray())
-            else up.getOutputStream().write(head)
-            val upSock = up
+            else upSock.getOutputStream().write(head)
             thread(isDaemon = true) {
                 pump(upSock.getInputStream(), cout)
                 runCatching { c.close() }
                 runCatching { upSock.close() }
             }
-            pump(cin, up.getOutputStream())
+            pump(cin, upSock.getOutputStream())
+            runCatching { upSock.close() }
         } catch (e: Exception) {
         } finally {
             runCatching { c.close() }
-            runCatching { up?.close() }
         }
     }
 }
